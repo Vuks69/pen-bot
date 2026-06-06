@@ -11,6 +11,7 @@ import (
 func Register() {
 	core.RegisterSimpleCommand("ping", handlePing)
 	core.RegisterSimpleCommand("pong", handlePong)
+	registerXkcdCommands()
 }
 
 func handlePing(event *events.MessageCreate) {
