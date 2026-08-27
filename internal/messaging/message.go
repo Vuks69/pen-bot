@@ -17,7 +17,7 @@ type SendOptions struct {
 // Returns error for caller's information if needed.
 func SendMessage(event *events.MessageCreate, content string, opts *SendOptions) error {
 	if opts == nil {
-		opts = &SendOptions{}
+		opts = &SendOptions{Reply: false}
 	}
 
 	builder := discord.NewMessageCreate().WithContent(content)

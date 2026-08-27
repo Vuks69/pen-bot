@@ -20,6 +20,7 @@ linters:
     # security parity with the pre-commit gosec hook
     - gosec
     # style & hygiene
+    - exhaustruct
     - goconst
     - intrange
     - misspell
@@ -32,6 +33,15 @@ linters:
     goconst:
       min-len: 3
       min-occurrences: 3
+    exhaustruct:
+      # Only our own structs are enforced; stdlib/third-party (disgo) structs
+      # have many fields and would require noisy, meaningless initialisers.
+      include:
+        - 'github.com/Neon-Genesis-Linux/pen-bot/.*'
+      exclude:
+        - net/url\.URL
+        - log/slog\.HandlerOptions
+        - github.com/disgoorg/disgo/discord\.MessageReference
     revive:
       # Curated subset; intentionally excludes the `exported` and
       # `package-comments` doc-comment requirements for now.
@@ -64,6 +74,8 @@ linters:
           - errcheck
           - gosec
           - unparam
+          # disgo structs have dozens of fields; partial literals in tests are fixtures
+          - exhaustruct
 
 formatters:
   enable:

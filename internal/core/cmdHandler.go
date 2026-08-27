@@ -15,7 +15,7 @@ type commandNode struct {
 }
 
 var (
-	rootCommand   = &commandNode{children: make(map[string]*commandNode)}
+	rootCommand   = &commandNode{children: make(map[string]*commandNode), handler: nil}
 	registryMutex sync.RWMutex
 	botPrefix     = "!" // configurable command prefix
 	aliasMap      = map[string]string{}
@@ -71,7 +71,7 @@ func RegisterCommandPath(path []string, handler MessageCommandHandler) {
 		}
 		child, exists := node.children[segment]
 		if !exists {
-			child = &commandNode{children: make(map[string]*commandNode)}
+			child = &commandNode{children: make(map[string]*commandNode), handler: nil}
 			node.children[segment] = child
 		}
 		node = child
