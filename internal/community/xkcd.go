@@ -16,6 +16,8 @@ import (
 	"github.com/Neon-Genesis-Linux/pen-bot/internal/messaging"
 )
 
+const xkcdCommand = "xkcd"
+
 var xkcdClient = resty.New().
 	SetTimeout(10 * time.Second).
 	SetRedirectPolicy(resty.NoRedirectPolicy())
@@ -36,16 +38,16 @@ type xkcdMetadata struct {
 
 func registerXkcdCommands() {
 	// Commands
-	core.RegisterCommand("xkcd", handleXkcdSpecific)
-	core.RegisterCommandPath([]string{"xkcd", "random"}, handleXkcdRandom)
-	core.RegisterCommandPath([]string{"xkcd", "r"}, handleXkcdRandom)
-	core.RegisterCommandPath([]string{"xkcd", "latest"}, handleXkcdCurrent)
-	core.RegisterCommandPath([]string{"xkcd", "l"}, handleXkcdCurrent)
-	core.RegisterCommandPath([]string{"xkcd", "current"}, handleXkcdCurrent)
-	core.RegisterCommandPath([]string{"xkcd", "c"}, handleXkcdCurrent)
+	core.RegisterCommand(xkcdCommand, handleXkcdSpecific)
+	core.RegisterCommandPath([]string{xkcdCommand, "random"}, handleXkcdRandom)
+	core.RegisterCommandPath([]string{xkcdCommand, "r"}, handleXkcdRandom)
+	core.RegisterCommandPath([]string{xkcdCommand, "latest"}, handleXkcdCurrent)
+	core.RegisterCommandPath([]string{xkcdCommand, "l"}, handleXkcdCurrent)
+	core.RegisterCommandPath([]string{xkcdCommand, "current"}, handleXkcdCurrent)
+	core.RegisterCommandPath([]string{xkcdCommand, "c"}, handleXkcdCurrent)
 
 	// Aliases
-	core.RegisterAlias("xk", "xkcd")
+	core.RegisterAlias("xk", xkcdCommand)
 }
 
 func getXkcdMetadata(numStr string) (xkcdMetadata, error) {
