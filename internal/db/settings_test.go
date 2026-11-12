@@ -9,7 +9,7 @@ import (
 
 // roleNineAdmin is the guild document with a single admin role, compared often
 // enough that goconst wants it pulled out of the assertions.
-const roleNineAdmin = `{"roles":{"9":"admin"}}`
+const roleNineAdmin = `{"admin_role":"9"}`
 
 // These exercise the settings SQL against the real SQLite driver, so the
 // SQLite JSON and date functions these queries rely on are pinned here. They
@@ -25,29 +25,32 @@ func TestSetGuildDocumentRoundTripsAndUpserts(t *testing.T) {
 		t.Fatalf("missing guild document = %q, %v: want nil", raw, err)
 	}
 
-	if err := db.SetGuildDocument(ctx, database, guild, `{"roles":{}}`); err != nil {
+	if err := db.SetGuildDocument(ctx, database, guild, `{"admin_role":"9"}`); err != nil {
 		t.Fatalf("set: %v", err)
 	}
 	raw, err := db.GetGuildDocument(ctx, database, guild)
-	if err != nil || string(raw) != `{"roles":{}}` {
+	if err != nil || string(raw) != `{"admin_role":"9"}` {
 		t.Fatalf("round trip = %q, %v: want the stored document", raw, err)
 	}
 
-	if err := db.SetGuildDocument(ctx, database, guild, roleNineAdmin); err != nil {
+	if err := db.SetGuildDocument(ctx, database, guild, `{"mod_role":"10"}`); err != nil {
 		t.Fatalf("upsert set: %v", err)
 	}
 	raw, err = db.GetGuildDocument(ctx, database, guild)
-	if err != nil || string(raw) != roleNineAdmin {
+	if err != nil || string(raw) != `{"mod_role":"10"}` {
 		t.Fatalf("after upsert = %q, %v: want the replaced document", raw, err)
 	}
 }
 
-func TestSetGuildRoleTierCreatesThenAdds(t *testing.T) {
+// TestSetGuildSettingWritesEachPathIndependently checks the path-based write:
+// two different roles are recorded under their own paths, and a later write to
+// one path leaves the other intact rather than replacing the whole document.
+func TestSetGuildSettingWritesEachPathIndependently(t *testing.T) {
 	ctx := context.Background()
 	database := testDB(t)
 	const guild = "g1"
 
-	if err := db.SetGuildRoleTier(ctx, database, guild, "9", "admin"); err != nil {
+	if err := db.SetGuildSetting(ctx, database, guild, "$.admin_role", "9"); err != nil {
 		t.Fatalf("set first role: %v", err)
 	}
 	raw, err := db.GetGuildDocument(ctx, database, guild)
@@ -55,30 +58,32 @@ func TestSetGuildRoleTierCreatesThenAdds(t *testing.T) {
 		t.Fatalf("after first role = %q, %v", raw, err)
 	}
 
-	// A second, different role must not overwrite the first: the path is written
-	// individually rather than by replacing the whole document.
-	if err := db.SetGuildRoleTier(ctx, database, guild, "10", "moderator"); err != nil {
+	// A second role under a different path must not overwrite the first.
+	if err := db.SetGuildSetting(ctx, database, guild, "$.mod_role", "10"); err != nil {
 		t.Fatalf("set second role: %v", err)
 	}
 	raw, err = db.GetGuildDocument(ctx, database, guild)
-	if err != nil || string(raw) != `{"roles":{"9":"admin","10":"moderator"}}` {
+	if err != nil || string(raw) != `{"admin_role":"9","mod_role":"10"}` {
 		t.Fatalf("after second role = %q, %v: want both roles", raw, err)
 	}
 }
 
-func TestRemoveGuildRoleDropsTheRoleAndReportsIt(t *testing.T) {
+// TestRemoveGuildSettingDropsThePathAndReportsIt checks the path-based removal:
+// one role is dropped while the other is left, and a path the guild never
+// configured touches no row.
+func TestRemoveGuildSettingDropsThePathAndReportsIt(t *testing.T) {
 	ctx := context.Background()
 	database := testDB(t)
 	const guild = "g1"
 
-	if err := db.SetGuildRoleTier(ctx, database, guild, "9", "admin"); err != nil {
+	if err := db.SetGuildSetting(ctx, database, guild, "$.admin_role", "9"); err != nil {
 		t.Fatalf("set role: %v", err)
 	}
-	if err := db.SetGuildRoleTier(ctx, database, guild, "10", "moderator"); err != nil {
+	if err := db.SetGuildSetting(ctx, database, guild, "$.mod_role", "10"); err != nil {
 		t.Fatalf("set role: %v", err)
 	}
 
-	removed, err := db.RemoveGuildRole(ctx, database, guild, "10")
+	removed, err := db.RemoveGuildSetting(ctx, database, guild, "$.mod_role")
 	if err != nil || !removed {
 		t.Fatalf("remove = %v, %v: want true", removed, err)
 	}
@@ -87,8 +92,8 @@ func TestRemoveGuildRoleDropsTheRoleAndReportsIt(t *testing.T) {
 		t.Fatalf("after remove = %q, %v: want only the remaining role", raw, err)
 	}
 
-	// Removing a role the guild never configured touches no row.
-	if removed, err := db.RemoveGuildRole(ctx, database, guild, "11"); err != nil || removed {
+	// Removing a path the guild never configured touches no row.
+	if removed, err := db.RemoveGuildSetting(ctx, database, guild, "$.unknown"); err != nil || removed {
 		t.Fatalf("remove unknown = %v, %v: want false", removed, err)
 	}
 	raw, err = db.GetGuildDocument(ctx, database, guild)

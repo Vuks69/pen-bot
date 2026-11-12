@@ -5,12 +5,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/snowflake/v2"
 
 	"github.com/Neon-Genesis-Linux/pen-bot/internal/db"
 )
@@ -633,4 +637,105 @@ func registerScopeLoading(loadErr error, t *testing.T) string {
 		t.Fatalf("registering scope %q failed: %v", key, err)
 	}
 	return key
+}
+
+// openTestDB opens a database in a temporary directory and applies the
+// migrations, so Allowed can read a real guild document.
+func openTestDB(t *testing.T) *db.DB {
+	t.Helper()
+	database, err := db.New(db.Config{Path: filepath.Join(t.TempDir(), "pen-bot.db")})
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if err := db.ApplyMigrations(context.Background(), database); err != nil {
+		t.Fatalf("apply migrations: %v", err)
+	}
+	return database
+}
+
+// mustParse parses a snowflake for a test, failing the test on a bad id rather
+// than panicing later.
+func mustParse(t *testing.T, id string) snowflake.ID {
+	t.Helper()
+	parsed, err := snowflake.Parse(id)
+	if err != nil {
+		t.Fatalf("parse %q: %v", id, err)
+	}
+	return parsed
+}
+
+// TestAllowedReadsGuildSettingsAndGates checks that the one-line gate loads the
+// guild's roles and checks them: a member passes a gate by resolving to the
+// required level or higher, and a member with no roles does not.
+func TestAllowedReadsGuildSettingsAndGates(t *testing.T) {
+	// Allowed resolves the guild scope, which the running bot registers in
+	// Register; the test registers it here.
+	if err := registerGuildScope(); err != nil {
+		t.Fatalf("register guild scope: %v", err)
+	}
+
+	database := openTestDB(t)
+	db.SetGlobalDB(database)
+	t.Cleanup(db.CloseDB)
+
+	const guild = "1000000000000000009"
+	if err := SetModRole(context.Background(), guild, "111"); err != nil {
+		t.Fatalf("set mod role: %v", err)
+	}
+
+	parse := func(id string) snowflake.ID {
+		parsed, err := snowflake.Parse(id)
+		if err != nil {
+			t.Fatalf("parse %q: %v", id, err)
+		}
+		return parsed
+	}
+	memberWithRole := func(id string) *discord.ResolvedMember {
+		return &discord.ResolvedMember{
+			Member: discord.Member{
+				User:    discord.User{ID: parse(id)},
+				RoleIDs: []snowflake.ID{parse(id)},
+			},
+		}
+	}
+	bareMember := &discord.ResolvedMember{Member: discord.Member{User: discord.User{}}}
+	adminMember := &discord.ResolvedMember{
+		Member:      discord.Member{User: discord.User{}},
+		Permissions: discord.PermissionAdministrator,
+	}
+	ownerGuild := &discord.Guild{OwnerID: parse(guild)}
+
+	// A member holding the configured mod role resolves to moderator, so they
+	// pass a command held on moderator.
+	if ok, err := Allowed(context.Background(), guild, ownerGuild, memberWithRole("111"), PrivilegeModerator); err != nil || !ok {
+		t.Fatalf("Allowed(mod role, moderator) = %v, %v, want true, nil", ok, err)
+	}
+	// A member with no roles holds nothing above member, so they fail the gate.
+	if ok, err := Allowed(context.Background(), guild, ownerGuild, bareMember, PrivilegeModerator); err != nil || ok {
+		t.Fatalf("Allowed(bare member, moderator) = %v, %v, want false, nil", ok, err)
+	}
+	// The Administrator reaches admin by permission, which implies moderator,
+	// free of any mod role configured.
+	if ok, err := Allowed(context.Background(), guild, ownerGuild, adminMember, PrivilegeModerator); err != nil || !ok {
+		t.Fatalf("Allowed(admin, moderator) = %v, %v, want true, nil", ok, err)
+	}
+}
+
+// TestAllowedOwnerGracefulDegradation checks the config command's owner bypass:
+// when the member is not the owner, the bypass denies rather than failing, so a
+// member without the guild owner role stays closed to /config and the command
+// never strands them on a missing owner handle.
+func TestAllowedOwnerGracefulDegradation(t *testing.T) {
+	const guild = "1000000000000000009"
+
+	// A stranger with no owner information resolves to nothing in a nil guild,
+	// so the PrivilegeGuildOwner gate denies rather than erroring.
+	stranger := &discord.ResolvedMember{Member: discord.Member{User: discord.User{ID: mustParse(t, "1000000000000000099")}}}
+	settings := GuildSettings{}
+	if ok := settings.resolveLevel(nil, stranger); ok != PrivilegeNone {
+		t.Fatalf("resolveLevel(nil guild, stranger) = %v, want none", ok)
+	}
+	if ok, err := Allowed(context.Background(), guild, nil, stranger, PrivilegeGuildOwner); err != nil || ok {
+		t.Fatalf("Allowed(stranger, owner) = %v, %v, want false, nil", ok, err)
+	}
 }

@@ -29,7 +29,7 @@ func GetGuildDocument(ctx context.Context, db *DB, guildID string) ([]byte, erro
 // SetGuildDocument replaces the guild's settings document outright, creating the
 // guild's row when it does not exist yet.
 //
-// It is the coarse counterpart to SetGuildRoleTier: a caller that read the
+// It is the coarse counterpart to SetGuildSetting: a caller that read the
 // document before writing it discards every change made since.
 func SetGuildDocument(ctx context.Context, db *DB, guildID, documentJSON string) error {
 	if guildID == "" {
@@ -46,52 +46,49 @@ func SetGuildDocument(ctx context.Context, db *DB, guildID, documentJSON string)
 	return err
 }
 
-// SetGuildRoleTier records the tier a guild treats a role as holding. It writes
-// the single JSON path named after the role, so two guilds configuring different
-// roles at the same time cannot discard each other's change, and a guild whose
-// document lacks the key yet gets one created.
+// SetGuildSetting writes value at jsonPath in the guild's settings document,
+// creating the row when absent, so two admins configuring different roles at the
+// same time cannot discard each other's change, and a guild whose document lacks
+// the key yet gets one created.
 //
-// The path is built from the role id in Go and bound as a parameter, so a role
-// id taken from Discord can neither rewrite another role nor escape the roles
-// object. json_set adds or replaces the leaf in one statement, whether the row
-// is new or existing, so the write is atomic.
-func SetGuildRoleTier(ctx context.Context, db *DB, guildID, roleID, tier string) error {
+// The path is bound as a parameter, so a role id taken from Discord can neither
+// rewrite another key nor escape the settings object. json_set adds or replaces
+// the leaf in one statement, whether the row is new or existing, so the write is
+// atomic.
+func SetGuildSetting(ctx context.Context, db *DB, guildID, jsonPath string, value any) error {
 	if guildID == "" {
 		return fmt.Errorf("guildID required")
 	}
-	if roleID == "" {
-		return fmt.Errorf("roleID required")
-	}
-	if tier == "" {
-		return fmt.Errorf("tier required")
+	if jsonPath == "" {
+		return fmt.Errorf("jsonPath required")
 	}
 	now := time.Now().UTC()
 	_, err := db.ExecContext(ctx, `
 	INSERT INTO guilds (guild_id, settings_json, created_at, updated_at)
-	VALUES ($1, json_set('{"roles":{}}', $4, $5), $2, $3)
+	VALUES ($1, json_set('{}', $4, $5), $2, $3)
 	ON CONFLICT (guild_id) DO UPDATE SET
 		settings_json = json_set(guilds.settings_json, $4, $5),
 		updated_at = $3
-	`, guildID, now, now, "$.roles."+roleID, tier)
+	`, guildID, now, now, jsonPath, value)
 	return err
 }
 
-// RemoveGuildRole drops a role's tier from the guild's settings, reporting
-// whether the guild held one for it. The path is guarded so that a role the guild
-// never configured updates no row: an unguarded rewrite reports the row as
-// affected even when the document comes out identical.
-func RemoveGuildRole(ctx context.Context, db *DB, guildID, roleID string) (bool, error) {
+// RemoveGuildSetting drops jsonPath from the guild's document, reporting whether
+// the guild held one. The path is guarded so that a role the guild never
+// configured updates no row: an unguarded rewrite reports the row as affected
+// even when the document comes out identical.
+func RemoveGuildSetting(ctx context.Context, db *DB, guildID, jsonPath string) (bool, error) {
 	if guildID == "" {
 		return false, fmt.Errorf("guildID required")
 	}
-	if roleID == "" {
-		return false, fmt.Errorf("roleID required")
+	if jsonPath == "" {
+		return false, fmt.Errorf("jsonPath required")
 	}
 	now := time.Now().UTC()
 	result, err := db.ExecContext(ctx, `
 	UPDATE guilds SET settings_json = json_remove(settings_json, $2), updated_at = $3
 	WHERE guild_id = $1 AND json_extract(settings_json, $2) IS NOT NULL
-	`, guildID, "$.roles."+roleID, now)
+	`, guildID, jsonPath, now)
 	if err != nil {
 		return false, err
 	}

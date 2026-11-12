@@ -58,6 +58,15 @@ run.
 `schema_migrations`
 : One row per applied migration, recording the file name and when it ran.
 
+:::{note}
+The `guilds.settings_json` column is owned by the bot's config feature, which
+stores the role a guild has set as its admin or mod role. The config feature
+writes each role at its own JSON path, so a change to one role leaves the other
+intact, and a guild that configured nothing reads both back unset. The generic
+guild upsert shares this column, but is used only by tests, so the config
+feature is the only writer in production.
+:::
+
 Timestamps are stored as Unix milliseconds in an `INTEGER` column, declared
 `DATETIME`. Read them by selecting them into a `time.Time`; the driver converts
 them.

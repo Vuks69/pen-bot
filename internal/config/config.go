@@ -394,8 +394,9 @@ func defaultValue[T any](s *registeredScope) T {
 }
 
 // overlay decodes a stored document onto a fresh copy of a scope's registered
-// defaults. It returns the defaults alone, alongside an error, when the document
-// cannot be decoded, and the zero value stands in for the settings type.
+// defaults, decoding the defaults first and the document on top, so a key the
+// document leaves out keeps its default. Either decode failing returns the
+// overlay so far, alongside the error.
 func overlay[T any](defaultsJSON []byte, raw json.RawMessage) (T, error) {
 	value := new(T)
 	if err := json.Unmarshal(defaultsJSON, value); err != nil {
